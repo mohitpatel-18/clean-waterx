@@ -1,0 +1,248 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+/**
+ * @title CleanWaterX
+ * @dev Smart contract to track and verify water quality and distribution in remote areas
+ */
+contract CleanWaterX {
+    
+    // Struct to represent water quality data
+    struct WaterQualityData {
+        uint256 timestamp;
+        uint256 ph;           // pH level (scaled by 100, e.g., 750 = 7.50)
+        uint256 tds;          // Total Dissolved Solids in ppm
+        uint256 turbidity;    // Turbidity in NTU
+        uint256 temperature;  // Temperature in Celsius (scaled by 10)
+        bool isSafe;         // Overall safety status
+        address verifier;    // Address of the entity that verified this data
+        string location;     // Geographic location identifier
+    }
+    
+    // Struct to represent water distribution record
+    struct DistributionRecord {
+        uint256 timestamp;
+        string sourceLocation;
+        string destinationLocation;
+        uint256 quantity;     // Quantity in liters
+        uint256 qualityId;    // Reference to quality data
+        address distributor;
+        bool isDelivered;
+    }
+    
+    // State variables
+    address public owner;
+    uint256 public nextQualityId;
+    uint256 public nextDistributionId;
+    
+    // Mappings
+    mapping(uint256 => WaterQualityData) public waterQualityRecords;
+    mapping(uint256 => DistributionRecord) public distributionRecords;
+    mapping(address => bool) public authorizedVerifiers;
+    mapping(address => bool) public authorizedDistributors;
+    mapping(string => uint256[]) public locationQualityHistory;
+    
+    // Events
+    event WaterQualityRecorded(
+        uint256 indexed qualityId,
+        string location,
+        bool isSafe,
+        address verifier
+    );
+    
+    event WaterDistributed(
+        uint256 indexed distributionId,
+        string sourceLocation,
+        string destinationLocation,
+        uint256 quantity,
+        address distributor
+    );
+    
+    event DeliveryConfirmed(
+        uint256 indexed distributionId,
+        uint256 timestamp
+    );
+    
+    // Modifiers
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
+    
+    modifier onlyAuthorizedVerifier() {
+        require(authorizedVerifiers[msg.sender], "Not an authorized verifier");
+        _;
+    }
+    
+    modifier onlyAuthorizedDistributor() {
+        require(authorizedDistributors[msg.sender], "Not an authorized distributor");
+        _;
+    }
+    
+    constructor() {
+        owner = msg.sender;
+        nextQualityId = 1;
+        nextDistributionId = 1;
+        authorizedVerifiers[msg.sender] = true;
+        authorizedDistributors[msg.sender] = true;
+    }
+    
+    /**
+     * @dev Core Function 1: Record water quality data
+     * @param _ph pH level (scaled by 100)
+     * @param _tds Total Dissolved Solids in ppm
+     * @param _turbidity Turbidity in NTU
+     * @param _temperature Temperature in Celsius (scaled by 10)
+     * @param _location Geographic location identifier
+     */
+    function recordWaterQuality(
+        uint256 _ph,
+        uint256 _tds,
+        uint256 _turbidity,
+        uint256 _temperature,
+        string memory _location
+    ) external onlyAuthorizedVerifier {
+        require(_ph > 0 && _ph <= 1400, "Invalid pH value");
+        require(_tds <= 2000, "TDS value too high");
+        require(_turbidity <= 1000, "Turbidity value too high");
+        require(_temperature > 0 && _temperature <= 1000, "Invalid temperature");
+        
+        // Determine if water is safe based on WHO standards
+        bool isSafe = (_ph >= 650 && _ph <= 850) && // pH 6.5-8.5
+                     (_tds <= 1000) &&              // TDS < 1000 ppm
+                     (_turbidity <= 5);              // Turbidity < 5 NTU
+        
+        uint256 qualityId = nextQualityId;
+        
+        waterQualityRecords[qualityId] = WaterQualityData({
+            timestamp: block.timestamp,
+            ph: _ph,
+            tds: _tds,
+            turbidity: _turbidity,
+            temperature: _temperature,
+            isSafe: isSafe,
+            verifier: msg.sender,
+            location: _location
+        });
+        
+        locationQualityHistory[_location].push(qualityId);
+        nextQualityId++;
+        
+        emit WaterQualityRecorded(qualityId, _location, isSafe, msg.sender);
+    }
+    
+    /**
+     * @dev Core Function 2: Track water distribution
+     * @param _sourceLocation Source location of water
+     * @param _destinationLocation Destination location
+     * @param _quantity Quantity in liters
+     * @param _qualityId Reference to quality data ID
+     */
+    function trackDistribution(
+        string memory _sourceLocation,
+        string memory _destinationLocation,
+        uint256 _quantity,
+        uint256 _qualityId
+    ) external onlyAuthorizedDistributor {
+        require(_quantity > 0, "Quantity must be greater than 0");
+        require(_qualityId > 0 && _qualityId < nextQualityId, "Invalid quality ID");
+        require(waterQualityRecords[_qualityId].isSafe, "Cannot distribute unsafe water");
+        
+        uint256 distributionId = nextDistributionId;
+        
+        distributionRecords[distributionId] = DistributionRecord({
+            timestamp: block.timestamp,
+            sourceLocation: _sourceLocation,
+            destinationLocation: _destinationLocation,
+            quantity: _quantity,
+            qualityId: _qualityId,
+            distributor: msg.sender,
+            isDelivered: false
+        });
+        
+        nextDistributionId++;
+        
+        emit WaterDistributed(
+            distributionId,
+            _sourceLocation,
+            _destinationLocation,
+            _quantity,
+            msg.sender
+        );
+    }
+    
+    /**
+     * @dev Core Function 3: Verify and confirm delivery
+     * @param _distributionId ID of the distribution record
+     */
+    function confirmDelivery(uint256 _distributionId) external onlyAuthorizedDistributor {
+        require(_distributionId > 0 && _distributionId < nextDistributionId, "Invalid distribution ID");
+        require(!distributionRecords[_distributionId].isDelivered, "Already confirmed");
+        require(
+            distributionRecords[_distributionId].distributor == msg.sender,
+            "Only the original distributor can confirm delivery"
+        );
+        
+        distributionRecords[_distributionId].isDelivered = true;
+        
+        emit DeliveryConfirmed(_distributionId, block.timestamp);
+    }
+    
+    // Management functions
+    function addAuthorizedVerifier(address _verifier) external onlyOwner {
+        authorizedVerifiers[_verifier] = true;
+    }
+    
+    function removeAuthorizedVerifier(address _verifier) external onlyOwner {
+        authorizedVerifiers[_verifier] = false;
+    }
+    
+    function addAuthorizedDistributor(address _distributor) external onlyOwner {
+        authorizedDistributors[_distributor] = true;
+    }
+    
+    function removeAuthorizedDistributor(address _distributor) external onlyOwner {
+        authorizedDistributors[_distributor] = false;
+    }
+    
+    // View functions
+    function getWaterQualityHistory(string memory _location) 
+        external 
+        view 
+        returns (uint256[] memory) 
+    {
+        return locationQualityHistory[_location];
+    }
+    
+    function isWaterSafeAtLocation(string memory _location) 
+        external 
+        view 
+        returns (bool, uint256) 
+    {
+        uint256[] memory history = locationQualityHistory[_location];
+        if (history.length == 0) {
+            return (false, 0);
+        }
+        
+        uint256 latestId = history[history.length - 1];
+        WaterQualityData memory latestData = waterQualityRecords[latestId];
+        
+        return (latestData.isSafe, latestId);
+    }
+    
+    function getDistributionStatus(uint256 _distributionId) 
+        external 
+        view 
+        returns (bool, uint256, string memory, string memory) 
+    {
+        require(_distributionId > 0 && _distributionId < nextDistributionId, "Invalid distribution ID");
+        
+        DistributionRecord memory record = distributionRecords[_distributionId];
+        return (
+            record.isDelivered,
+            record.quantity,
+            record.sourceLocation,
+            record.destinationLocation
+        );
+    }
+}
