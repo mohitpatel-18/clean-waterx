@@ -98,7 +98,7 @@ Our vision is to create a decentralized, transparent, and reliable system that:
 
 ### Usage
 1. Deploy the contract to your preferred network
-2. Add authorized verifiers and distributors
+2. Add authorized verifiers and distributors 0xDa3C62F840eF6aa73EcdDfEBC064bB66429457ab
 3. Start recording water quality data
 4. Track water distribution and confirm deliveries
 
@@ -108,6 +108,6 @@ Our vision is to create a decentralized, transparent, and reliable system that:
 
 **License**: This project is licensed under the MIT License - see the LICENSE file for details.
 
-**Contact**: 0xDa3C62F840eF6aa73EcdDfEBC064bB66429457ab.
+**Contact**:.
 uploading proof image.
 ![image](https://github.com/user-attachments/assets/d7ec0e06-80e4-4944-81e9-45d4fcfa1177)
